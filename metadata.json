@@ -1,0 +1,6 @@
+{
+  "name": "Conveyor Flow Simulator",
+  "description": "A high-fidelity conveyor belt system simulator with a visual editor, physics-based item movement, and real-time speed controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

@@ -1,0 +1,281 @@
+{
+  "version": "1.0.0",
+  "savedAt": 1717900000000,
+  "belts": [
+    {
+      "id": "belt_1",
+      "type": "linear",
+      "shape": "quadrilateral",
+      "x": -0.0836302599999994,
+      "y": 2.9872224800000002,
+      "length": 10.0,
+      "beltWidth": 1.0,
+      "rotation": 0.0,
+      "radius": 0.0,
+      "startAngle": 0.0,
+      "endAngle": 0.0,
+      "speed": 2.0,
+      "directionAngle": 0.0,
+      "direction": 1,
+      "color": "#aaaaaa",
+      "trianglePoints": [
+        {
+          "x": -5.540269740000001,
+          "y": -0.5604224799999993
+        },
+        {
+          "x": 5.0,
+          "y": -0.5
+        },
+        {
+          "x": 5.04723026,
+          "y": 0.6858775200000009
+        },
+        {
+          "x": -5.274069740000001,
+          "y": 0.8068775200000009
+        }
+      ],
+      "speedBinding": null,
+      "directionAngleBinding": null,
+      "directionBinding": null
+    },
+    {
+      "id": "belt_2",
+      "type": "curved",
+      "shape": "arc",
+      "x": 4.985827512,
+      "y": 0.9738463830000006,
+      "length": 0.0,
+      "beltWidth": 1.0,
+      "rotation": 0.0,
+      "radius": 2.0,
+      "startAngle": 0.0,
+      "endAngle": 90.0,
+      "speed": 2.0,
+      "directionAngle": -90.0,
+      "direction": 1,
+      "color": "#ffffff",
+      "trianglePoints": null,
+      "speedBinding": null,
+      "directionAngleBinding": null,
+      "directionBinding": null
+    },
+    {
+      "id": "belt_3",
+      "type": "curved",
+      "shape": "arc",
+      "x": 4.956827678000002,
+      "y": -4.053331568000001,
+      "length": 0.0,
+      "beltWidth": 1.0,
+      "rotation": 0.0,
+      "radius": 2.0,
+      "startAngle": 270.0,
+      "endAngle": 360.0,
+      "speed": 2.0,
+      "directionAngle": 0.0,
+      "direction": 1,
+      "color": "#cccccc",
+      "trianglePoints": null,
+      "speedBinding": null,
+      "directionAngleBinding": null,
+      "directionBinding": null
+    },
+    {
+      "id": "belt_4",
+      "type": "linear",
+      "shape": "rectangle",
+      "x": 6.983815564000001,
+      "y": -1.5444790900000003,
+      "length": 5.0,
+      "beltWidth": 1.0,
+      "rotation": 90.0,
+      "radius": 0.0,
+      "startAngle": 0.0,
+      "endAngle": 0.0,
+      "speed": 2.0,
+      "directionAngle": -180.0,
+      "direction": 1,
+      "color": "#cccccc",
+      "trianglePoints": null,
+      "speedBinding": null,
+      "directionAngleBinding": null,
+      "directionBinding": null
+    },
+    {
+      "id": "belt_5",
+      "type": "linear",
+      "shape": "rectangle",
+      "x": 2.4223680910000014,
+      "y": -6.0274947260000005,
+      "length": 5.0,
+      "beltWidth": 1.0,
+      "rotation": 0.0,
+      "radius": 0.0,
+      "startAngle": 0.0,
+      "endAngle": 0.0,
+      "speed": 2.0,
+      "directionAngle": 180.0,
+      "direction": 1,
+      "color": "#cccccc",
+      "trianglePoints": null,
+      "speedBinding": null,
+      "directionAngleBinding": null,
+      "directionBinding": null
+    },
+    {
+      "id": "belt_6",
+      "type": "linear",
+      "shape": "quadrilateral",
+      "x": -3.364399999999998,
+      "y": 1.6482000000000003,
+      "length": 5.0,
+      "beltWidth": 1.0,
+      "rotation": 30.0,
+      "radius": 0.0,
+      "startAngle": 0.0,
+      "endAngle": 0.0,
+      "speed": 2.3,
+      "directionAngle": 0.0,
+      "direction": 1,
+      "color": "#cccccc",
+      "trianglePoints": [
+        {
+          "x": -2.5,
+          "y": -0.5
+        },
+        {
+          "x": 2.5,
+          "y": -0.5
+        },
+        {
+          "x": 0.9027299284243187,
+          "y": 0.41977410154394085
+        },
+        {
+          "x": -2.5,
+          "y": 0.5
+        }
+      ],
+      "speedBinding": null,
+      "directionAngleBinding": null,
+      "directionBinding": null
+    }
+  ],
+  "sensors": [
+    {
+      "id": "sensor_1",
+      "x": 1.9291375599999998,
+      "y": 3.0648005300000007,
+      "width": 0.1,
+      "height": 1.5,
+      "rotation": 0.0,
+      "isActive": false,
+      "label": "LASER_1",
+      "color": "#ff0000",
+      "stateBinding": null,
+      "sensorType": "laser_banner",
+      "laserCount": 32,
+      "beamDistance": 0.02,
+      "wordBinding": null,
+      "detectedWord": 0
+    },
+    {
+      "id": "sensor_2",
+      "x": 3.9328654200000015,
+      "y": 2.9939380900000003,
+      "width": 0.1,
+      "height": 1.0,
+      "rotation": 0.0,
+      "isActive": false,
+      "label": "SENSOR",
+      "color": "#ff0000",
+      "stateBinding": null,
+      "sensorType": "ir",
+      "laserCount": null,
+      "beamDistance": null,
+      "wordBinding": null,
+      "detectedWord": 0
+    },
+    {
+      "id": "sensor_3",
+      "x": -2.79,
+      "y": 2.78,
+      "width": 0.1,
+      "height": 1.0,
+      "rotation": 0.0,
+      "isActive": false,
+      "label": "SENSOR",
+      "color": "#ff0000",
+      "stateBinding": null,
+      "sensorType": "laser_banner",
+      "laserCount": null,
+      "beamDistance": null,
+      "wordBinding": null,
+      "detectedWord": 0
+    }
+  ],
+  "sources": [
+    {
+      "id": "source_1",
+      "x": -4.268972356000001,
+      "y": 2.982049992,
+      "rotation": 0.0,
+      "interval": 1.0,
+      "minWidth": 0.4,
+      "maxWidth": 0.6,
+      "minHeight": 0.4,
+      "maxHeight": 0.6,
+      "label": "SRC",
+      "colorScheme": null,
+      "triggerBinding": null,
+      "intervalBinding": null
+    },
+    {
+      "id": "source_2",
+      "x": -5.31,
+      "y": 0.6600000000000001,
+      "rotation": 30.0,
+      "interval": 1.0,
+      "minWidth": 0.7,
+      "maxWidth": 0.8,
+      "minHeight": 0.3,
+      "maxHeight": 0.4,
+      "label": "SRC",
+      "colorScheme": null,
+      "triggerBinding": null,
+      "intervalBinding": null
+    }
+  ],
+  "sinks": [
+    {
+      "id": "sink_1",
+      "x": 0.545640788,
+      "y": -5.982561497,
+      "width": 1.0,
+      "height": 1.0,
+      "label": "SNK"
+    },
+    {
+      "id": "sink_2",
+      "x": 0.483337079999999,
+      "y": 0.5261951500000009,
+      "width": 1.0,
+      "height": 1.0,
+      "label": "SNK"
+    }
+  ],
+  "mqttSettings": {
+    "enabled": true,
+    "brokerUrl": "mqtt://localhost:1883",
+    "topicPrefix": "sim/",
+    "topics": []
+  },
+  "simulatorBackend": "matter",
+  "simulationSteps": 4,
+  "kineticFriction": true,
+  "collisionEnabled": true,
+  "gridSnap": true,
+  "gridSize": 0.5
+}
