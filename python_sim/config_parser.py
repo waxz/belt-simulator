@@ -18,10 +18,12 @@ class Belt(BaseModel):
     directionAngle: float
     direction: int = 1
     color: str
-    trianglePoints: Optional[List[Dict[str, float]]] = None
+    vertexs: Optional[List[Dict[str, float]]] = None
     speedBinding: Optional[str] = None
     directionAngleBinding: Optional[str] = None
     directionBinding: Optional[str] = None
+    transition_momentum_duration: float = 0.6
+    
 
 class Sensor(BaseModel):
     id: str
@@ -39,6 +41,7 @@ class Sensor(BaseModel):
     beamDistance: Optional[float] = None
     wordBinding: Optional[str] = None
     detectedWord: Optional[int] = 0
+    sensor_states :Optional[str] = None
 
 class Source(BaseModel):
     id: str
@@ -72,7 +75,7 @@ class TopicConfig(BaseModel):
     topic: str
     interval: int
     direction: Literal["in", "out"]
-    format: Literal["json", "raw", "binary_struct"]
+    format: Literal["json", "raw", "string", "binary_struct"]
     endianness: Literal["LE", "BE"]
     components: List[TopicComponent] = Field(default_factory=list)
 
@@ -96,6 +99,7 @@ class SimulatorConfig(BaseModel):
     collisionEnabled: bool = True
     gridSnap: bool = True
     gridSize: float = 0.5
+    useSurfaceVelocity: bool = False
 
 def load_config(file_path: str) -> SimulatorConfig:
     with open(file_path, "r", encoding="utf-8") as f:

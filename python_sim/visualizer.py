@@ -39,7 +39,7 @@ class Renderer:
         # GUI
         if not self.headless:
             self.manager = pygame_gui.UIManager((self.width, self.height))
-            self.editor_ui = EditorUI(self.manager, self.width, self.height)
+            self.editor_ui = EditorUI(self.manager, self.width, self.height, self.config)
             
     def _world_to_screen(self, x: float, y: float) -> Tuple[int, int]:
         sx = int(x * self.scale * self.zoom) + self.camera_x
@@ -85,6 +85,9 @@ class Renderer:
             ui_cmd = self.editor_ui.handle_event(event)
             if ui_cmd:
                 cmd = ui_cmd
+                if isinstance(ui_cmd, tuple) and ui_cmd[0] == "SELECT_ITEM":
+                    self.selected_item = ui_cmd[1]
+                    continue
                 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
@@ -98,21 +101,19 @@ class Renderer:
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1: # Left click
                     # Check if clicked on UI panels
-                    if self.editor_ui.prop_panel.rect.collidepoint(event.pos) or \
-                       self.editor_ui.toolbar_panel.rect.collidepoint(event.pos) or \
-                       self.editor_ui.save_btn.rect.collidepoint(event.pos):
+                    if self.editor_ui.is_ui_blocking_point(event.pos):
                         continue
                         
                     # Check if clicked a vertex handle of a selected quadrilateral belt
                     handle_clicked = False
                     if self.selected_item and isinstance(self.selected_item, Belt) and self.selected_item.type == "linear" and getattr(self.selected_item, "shape", "rectangle") == "quadrilateral":
                         belt = self.selected_item
-                        pts = belt.trianglePoints
+                        pts = belt.vertexs
                         if not pts:
                             hw = belt.length / 2.0
                             hh = belt.beltWidth / 2.0
                             pts = [{'x': -hw, 'y': -hh}, {'x': hw, 'y': -hh}, {'x': hw, 'y': hh}, {'x': -hw, 'y': hh}]
-                            belt.trianglePoints = pts
+                            belt.vertexs = pts
                         
                         rad = math.radians(belt.rotation)
                         cos_a = math.cos(rad)
@@ -160,7 +161,7 @@ class Renderer:
                     dy = mwy - belt.y
                     lx = dx * cos_a + dy * sin_a
                     ly = -dx * sin_a + dy * cos_a
-                    belt.trianglePoints[self.dragging_vertex_idx] = {'x': lx, 'y': ly}
+                    belt.vertexs[self.dragging_vertex_idx] = {'x': lx, 'y': ly}
                     self.editor_ui.show_props_for(belt)
                 elif self.is_dragging and not self.selected_item:
                     # Pan camera if nothing selected
@@ -199,8 +200,11 @@ class Renderer:
                 allow_existing_files_only=False
             )
         elif cmd == "ADD_LINEAR":
+            idx = 0 
+            if len(self.config.belts) > 0:
+                idx = max([int(s.id.split("_")[1]) for s in self.config.belts]) + 1
             new_belt = Belt(
-                id=f"belt_{len(self.config.belts)+1}",
+                id=f"belt_{idx}",
                 type="linear",
                 x=0, y=0, length=5, beltWidth=1, rotation=0, speed=1.0, directionAngle=0, color="#cccccc"
             )
@@ -208,8 +212,11 @@ class Renderer:
             self.selected_item = new_belt
             self.editor_ui.show_props_for(new_belt)
         elif cmd == "ADD_CURVED":
+            idx = 0 
+            if len(self.config.belts) > 0:
+                idx = max([int(s.id.split("_")[1]) for s in self.config.belts]) + 1
             new_belt = Belt(
-                id=f"belt_{len(self.config.belts)+1}",
+                id=f"belt_{idx}",
                 type="curved", shape="arc",
                 x=0, y=0, radius=2, beltWidth=1, startAngle=0, endAngle=90, rotation=0, speed=1.0, directionAngle=0, color="#cccccc"
             )
@@ -217,8 +224,11 @@ class Renderer:
             self.selected_item = new_belt
             self.editor_ui.show_props_for(new_belt)
         elif cmd == "ADD_SENSOR":
+            idx = 0 
+            if len(self.config.sensors) > 0:
+                idx = max([int(s.id.split("_")[1]) for s in self.config.sensors]) + 1
             new_sensor = Sensor(
-                id=f"sensor_{len(self.config.sensors)+1}",
+                id=f"sensor_{idx}",
                 x=0, y=0, width=0.1, height=1.0, rotation=0, label="SENSOR", color="#ff0000", sensorType="ir"
             )
             self.config.sensors.append(new_sensor)
@@ -226,23 +236,33 @@ class Renderer:
             self.editor_ui.show_props_for(new_sensor)
         elif cmd == "ADD_SOURCE":
             from config_parser import Source
+            idx = 0 
+            if len(self.config.sources) > 0:
+                idx = max([int(s.id.split("_")[1]) for s in self.config.sources]) + 1
             new_source = Source(
-                id=f"source_{len(self.config.sources)+1}",
-                x=0, y=0, interval=2.0, minWidth=0.4, maxWidth=0.6, minHeight=0.4, maxHeight=0.6, label="SRC"
+                id=f"source_{idx}",
+                x=0, y=0, rotation=0, interval=2.0, minWidth=0.4, maxWidth=0.6, minHeight=0.4, maxHeight=0.6, label="SRC"
             )
             self.config.sources.append(new_source)
             self.selected_item = new_source
             self.editor_ui.show_props_for(new_source)
         elif cmd == "ADD_SINK":
             from config_parser import Sink
+            idx = 0 
+            if len(self.config.sinks) > 0:
+                idx = max([int(s.id.split("_")[1]) for s in self.config.sinks]) + 1
             new_sink = Sink(
-                id=f"sink_{len(self.config.sinks)+1}",
+                id=f"sink_{idx}",
                 x=0, y=0, width=1.0, height=1.0, label="SNK"
             )
             self.config.sinks.append(new_sink)
             self.selected_item = new_sink
             self.editor_ui.show_props_for(new_sink)
-            
+
+        elif cmd == "OPEN_MANAGER":
+            self.editor_ui.open_manager_panel()
+        elif cmd == "OPEN_MQTT":
+            self.editor_ui.open_mqtt_panel()
         return cmd
 
     def _hit_test(self, wx: float, wy: float) -> Optional[object]:
@@ -272,7 +292,7 @@ class Renderer:
         for belt in self.config.belts:
             if belt.type == "linear":
                 if getattr(belt, 'shape', 'rectangle') == 'quadrilateral':
-                    pts = belt.trianglePoints
+                    pts = belt.vertexs
                     if not pts:
                         hw = belt.length / 2.0
                         hh = belt.beltWidth / 2.0
@@ -295,7 +315,7 @@ class Renderer:
         color = self._hex_to_rgb(belt.color)
         if belt.type == "linear":
             if getattr(belt, 'shape', 'rectangle') == 'quadrilateral':
-                pts = belt.trianglePoints
+                pts = belt.vertexs
                 if not pts:
                     hw = belt.length / 2.0
                     hh = belt.beltWidth / 2.0
@@ -491,12 +511,12 @@ class Renderer:
 
         if hasattr(item, 'type') and getattr(item, 'type') == 'linear':
             if getattr(item, 'shape', 'rectangle') == 'quadrilateral':
-                pts = getattr(item, 'trianglePoints', None)
+                pts = getattr(item, 'vertexs', None)
                 if not pts:
                     hw = item.length / 2.0
                     hh = item.beltWidth / 2.0
                     pts = [{'x': -hw, 'y': -hh}, {'x': hw, 'y': -hh}, {'x': hw, 'y': hh}, {'x': -hw, 'y': hh}]
-                    item.trianglePoints = pts
+                    item.vertexs = pts
                 rad = math.radians(item.rotation)
                 cos_a = math.cos(rad)
                 sin_a = math.sin(rad)
@@ -603,7 +623,7 @@ class Renderer:
         # Draw parcels
         if physics_engine:
             self.draw_parcels(physics_engine)
-            self.editor_ui.update_sensor_state(physics_engine.sensor_states)
+            self.editor_ui.update_sensor_state(physics_engine)
 
         # Draw overlays
         if not self.headless:

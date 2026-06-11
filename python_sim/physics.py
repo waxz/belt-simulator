@@ -1,3 +1,6 @@
+from config_parser import Belt
+from typing import Dict
+from pymunk.vec2d import Vec2d
 import math
 import random
 import pymunk
@@ -13,6 +16,62 @@ class Parcel:
         self.label = label
         self.color = color
         self.max_extent = max(math.hypot(v.x, v.y) for v in shape.get_vertices()) if hasattr(shape, 'get_vertices') else 0.5
+
+def dynamic_velocity_modifier(body, gravity, damping, dt):
+    pymunk.Body.update_velocity(body, gravity, damping, dt)
+    
+    target_v_enable = getattr(body, "target_v_enable", False) 
+    if not target_v_enable:
+        return
+    target_v = Vec2d(*getattr(body, "target_v", body.velocity))
+    momentum_v = getattr(body, "transition_momentum_v", None)
+    momentum_time = getattr(body, "transition_momentum_time", 0.0)
+    momentum_duration = getattr(body, "transition_momentum_duration", 0.2)
+    # print(f"dynamic_velocity_modifier target_v: {target_v}, momentum_v: {momentum_v}, momentum_time: {momentum_time}, momentum_duration: {momentum_duration}")
+    if momentum_v is not None and momentum_time > 0.0 and momentum_duration > 0.01:
+        alpha = max(0.0, min(1.0, momentum_time / momentum_duration))
+        original_v = Vec2d(*momentum_v)
+        body.velocity = original_v * alpha + target_v * (1.0 - alpha)
+        body.transition_momentum_time = max(0.0, momentum_time - dt)
+    else:
+        body.velocity = target_v
+        body.transition_momentum_v = None
+        body.transition_momentum_time = 0.0
+
+    # body.velocity = target_v
+
+    target_w = getattr(body, "target_w", body.angular_velocity)
+    remaining_w = getattr(body, "target_w_remaining", None)
+    
+    # body.angular_velocity = target_w
+
+    if remaining_w is not None and remaining_w > 0.0 and dt > 0.0 and abs(target_w) > 1e-9:
+        clamped_w = min(abs(target_w), remaining_w / dt)
+        body.angular_velocity = math.copysign(clamped_w, target_w)
+        body.target_w_remaining = max(0.0, remaining_w - clamped_w * dt)
+    else:
+        body.angular_velocity = target_w
+
+    # print(f"dynamic_velocity_modifier body.velocity: {body.velocity}, body.angular_velocity: {body.angular_velocity}")
+
+# def constant_velocity(body, gravity, damping, dt):
+#     body.velocity = (1.95, 0)  # Set your target velocity here
+#     pymunk.Body.update_velocity(body, gravity, damping, dt) # Apply space physics
+# 1. Define the custom velocity function
+# def dynamic_velocity_modifier(body, gravity, damping, dt):
+#     """
+#     Pymunk calls this every frame automatically.
+#     It reads the dynamic target speeds stored directly on the body.
+#     """
+#     # Fallback to current velocity if custom attributes aren't set yet
+#     target_v_enable = getattr(body, "target_v_enable", False) 
+#     if not target_v_enable:
+#         return
+
+#     target_v = getattr(body, "target_v", body.velocity) 
+
+#     # Assign the exact desired velocity
+#     body.velocity =  target_v
 
 class PhysicsEngine:
     # ShapeFilter category bitmasks
@@ -34,7 +93,7 @@ class PhysicsEngine:
         self.sensor_states = {}  # {sensor.id: bool | str}
         
         # Sources timing — new sources added at runtime will be lazily initialised
-        self.source_timers = {source.id: 0.0 for source in self.config.sources}
+        self.source_timers = {source.id: 100.0 for source in self.config.sources}
         
         # self.build_walls()
         self._setup_collision_handlers()
@@ -53,18 +112,30 @@ class PhysicsEngine:
             # process_collision=True keeps the physical separation response
             # (prevents overlap), but with zero bounce.
             arbiter.process_collision = True
-
+        def _pre_solve_parcel_wall(arbiter: pymunk.Arbiter, space, data):
+            # Zero restitution — no bounce between parcel bodies.
+            # Low friction so touching parcels don’t spin each other.
+            arbiter.restitution = 0.0
+            arbiter.friction    = 0.1
+            # process_collision=True keeps the physical separation response
+            # (prevents overlap), but with zero bounce.
+            arbiter.process_collision = True
         self.space.on_collision(
             self.COLLISION_TYPE_PARCEL,
             self.COLLISION_TYPE_PARCEL,
             pre_solve=_pre_solve_parcel_parcel
         )
+        # self.space.on_collision(
+        #     self.COLLISION_TYPE_PARCEL,
+        #     self.COLLISION_TYPE_WALL,
+        #     pre_solve=_pre_solve_parcel_wall
+        # )
 
     def _is_point_on_belt(self, px: float, py: float, belt) -> bool:
         """Returns True if the point (px, py) is physically on the given belt."""
         if belt.type == "linear":
             if getattr(belt, 'shape', 'rectangle') == 'quadrilateral':
-                pts = belt.trianglePoints
+                pts = belt.vertexs
                 if not pts:
                     hw = belt.length / 2.0
                     hh = belt.beltWidth / 2.0
@@ -80,94 +151,73 @@ class PhysicsEngine:
             return point_in_arc(px, py, belt.x, belt.y, belt.radius, belt.beltWidth, belt.startAngle, belt.endAngle)
         return False
 
-    def build_walls(self):
-        # Remove old walls if any
-        if self.static_walls:
-            self.space.remove(*self.static_walls)
-            self.static_walls.clear()
-            
-        static_body = self.space.static_body
-        
-        def add_clipped_segment(p1, p2, current_belt):
-            dx = p2[0] - p1[0]
-            dy = p2[1] - p1[1]
-            length = math.hypot(dx, dy)
-            if length < 1e-5: return
-            
-            step = 0.2
-            num_steps = max(1, int(length / step))
-            
-            prev_pt = p1
-            for i in range(1, num_steps + 1):
-                t = i / num_steps
-                curr_pt = (p1[0] + dx * t, p1[1] + dy * t)
-                
-                mid_x = (prev_pt[0] + curr_pt[0]) / 2.0
-                mid_y = (prev_pt[1] + curr_pt[1]) / 2.0
-                
-                inside_other = False
-                for other_belt in self.config.belts:
-                    if other_belt.id == current_belt.id: continue
-                    if self._is_point_on_belt(mid_x, mid_y, other_belt):
-                        inside_other = True
-                        break
-                
-                if not inside_other:
-                    edge = pymunk.Segment(static_body, prev_pt, curr_pt, 0.0)
-                    edge.elasticity = 0.0
-                    edge.friction   = 0.0
-                    edge.filter = pymunk.ShapeFilter(
-                        categories=self.CATEGORY_WALL,
-                        mask=self.CATEGORY_PARCEL
-                    )
-                    self.static_walls.append(edge)
-                    self.space.add(edge)
-                
-                prev_pt = curr_pt
+    def _is_angle_in_arc(self, angle: float, start_angle: float, end_angle: float, tolerance: float = 0.0) -> bool:
+        angle %= 360.0
+        start_angle = (start_angle - tolerance) % 360.0
+        end_angle = (end_angle + tolerance) % 360.0
 
+        if start_angle <= end_angle:
+            return start_angle <= angle <= end_angle
+        return angle >= start_angle or angle <= end_angle
+
+    def _arc_span_radians(self, start_angle: float, end_angle: float) -> float:
+        span = end_angle - start_angle
+        if span <= 0.0:
+            span += 360.0
+        return math.radians(span)
+
+    def _get_belt_bounds(self, belt) -> Tuple[float, float, float, float]:
+        if belt.type == "linear":
+            if getattr(belt, 'shape', 'rectangle') == 'quadrilateral':
+                pts = belt.vertexs
+                if not pts:
+                    hw = belt.length / 2.0
+                    hh = belt.beltWidth / 2.0
+                    pts = [{'x': -hw, 'y': -hh}, {'x': hw, 'y': -hh}, {'x': hw, 'y': hh}, {'x': -hw, 'y': hh}]
+                verts = []
+                for pt in pts:
+                    rx, ry = rotate_point(0, 0, belt.rotation, pt['x'], pt['y'])
+                    verts.append((belt.x + rx, belt.y + ry))
+            else:
+                verts = get_rect_vertices(belt.x, belt.y, belt.length, belt.beltWidth, belt.rotation)
+            xs = [v[0] for v in verts]
+            ys = [v[1] for v in verts]
+            return min(xs), min(ys), max(xs), max(ys)
+
+        outer_r = belt.radius + belt.beltWidth / 2.0
+        return belt.x - outer_r, belt.y - outer_r, belt.x + outer_r, belt.y + outer_r
+
+    def _belts_have_area_overlap(self, belt_a, belt_b) -> bool:
+        a_min_x, a_min_y, a_max_x, a_max_y = self._get_belt_bounds(belt_a)
+        b_min_x, b_min_y, b_max_x, b_max_y = self._get_belt_bounds(belt_b)
+        min_x = max(a_min_x, b_min_x)
+        min_y = max(a_min_y, b_min_y)
+        max_x = min(a_max_x, b_max_x)
+        max_y = min(a_max_y, b_max_y)
+
+        if min_x >= max_x or min_y >= max_y:
+            return False
+
+        sample_count = 10
+        for ix in range(sample_count):
+            x = min_x + (ix + 0.5) * (max_x - min_x) / sample_count
+            for iy in range(sample_count):
+                y = min_y + (iy + 0.5) * (max_y - min_y) / sample_count
+                if self._is_point_on_belt(x, y, belt_a) and self._is_point_on_belt(x, y, belt_b):
+                    return True
+        return False
+
+    def _get_belt_by_id(self, belt_id: str):
         for belt in self.config.belts:
-            if belt.type == "linear":
-                if getattr(belt, 'shape', 'rectangle') == 'quadrilateral':
-                    pts = belt.trianglePoints
-                    if not pts:
-                        hw = belt.length / 2.0
-                        hh = belt.beltWidth / 2.0
-                        pts = [{'x': -hw, 'y': -hh}, {'x': hw, 'y': -hh}, {'x': hw, 'y': hh}, {'x': -hw, 'y': hh}]
-                    verts = []
-                    for pt in pts:
-                        rx, ry = rotate_point(0, 0, belt.rotation, pt['x'], pt['y'])
-                        verts.append((belt.x + rx, belt.y + ry))
-                else:
-                    verts = get_rect_vertices(belt.x, belt.y, belt.length, belt.beltWidth, belt.rotation)
-                # v0 to v1 is length (top wall), v2 to v3 is bottom wall.
-                add_clipped_segment(verts[0], verts[1], belt)
-                add_clipped_segment(verts[2], verts[3], belt)
-                    
-            elif belt.type == "curved":
-                # Generate segments for inner and outer arcs
-                angle_diff = belt.endAngle - belt.startAngle
-                if angle_diff <= 0:
-                    angle_diff += 360
-                    
-                segments = max(10, int(belt.radius * math.radians(angle_diff) / 5))
-                inner_r = belt.radius - belt.beltWidth / 2.0
-                outer_r = belt.radius + belt.beltWidth / 2.0
-                
-                s_rad = math.radians(belt.startAngle)
-                e_rad = math.radians(belt.startAngle + angle_diff)
-                
-                for r in [inner_r, outer_r]:
-                    prev_pt = None
-                    for i in range(segments + 1):
-                        angle = s_rad + (e_rad - s_rad) * (i / segments)
-                        px = belt.x + r * math.cos(angle)
-                        py = belt.y + r * math.sin(angle)
-                        if prev_pt:
-                            add_clipped_segment(prev_pt, (px, py), belt)
-                        prev_pt = (px, py)
+            if belt.id == belt_id:
+                return belt
+        return None
+
+    def build_walls(self):
+        return # BYPASS BUILD WALLS FOR NOW
 
     def _get_belt_velocity_at(self, px: float, py: float):
-        """Returns (vx, vy) of the belt under point (px, py), or None if not on any belt."""
+        """Returns (vx, vy, vw) of the belt under point (px, py), or None if not on any belt."""
         vs = []
         hit = False
         for belt in self.config.belts:
@@ -175,7 +225,7 @@ class PhysicsEngine:
                 hit = True
                 if belt.type == "linear":
                     rad = math.radians(belt.rotation + belt.directionAngle)
-                    vs.append((belt.speed * math.cos(rad), belt.speed * math.sin(rad)))
+                    vs.append((belt.speed * math.cos(rad), belt.speed * math.sin(rad), 0.0))
 
                 elif belt.type == "curved":
                     dx = px - belt.x
@@ -184,18 +234,18 @@ class PhysicsEngine:
                     if dist < 1e-6:
                         continue
                     # Tangent velocity proportional to radius (v = w * r)
-                    # This ensures parcels rotate correctly without slipping
-                    speed_at_dist = belt.speed * (dist / belt.radius)
-                    
                     direction = 1 if getattr(belt, 'directionAngle', 0) > 0 else -1
-                    tx = -dy / dist * direction
-                    ty =  dx / dist * direction
-                    vs.append((speed_at_dist * tx, speed_at_dist * ty))
+                    w = direction * belt.speed / belt.radius if belt.radius > 0 else 0
+                    speed_at_dist = w * dist
+                    tx = -dy / dist 
+                    ty =  dx / dist
+                    vs.append((speed_at_dist * tx, speed_at_dist * ty, w))
 
         if hit:
             vx = sum(v[0] for v in vs) / len(vs)
             vy = sum(v[1] for v in vs) / len(vs)
-            return (vx, vy)
+            vw = sum(v[2] for v in vs) / len(vs)
+            return (vx, vy, vw)
         return None
 
     def handle_sources(self, dt: float):
@@ -234,8 +284,11 @@ class PhysicsEngine:
                     moment = pymunk.moment_for_box(mass, (w, h))
                     body = pymunk.Body(mass, moment)
                     body.position = (sx, sy)
-                    # body.angle = random.uniform(0, 2 * math.pi)
                     body.angle = math.radians(source.rotation)
+                    
+                    if getattr(self.config, 'useSurfaceVelocity', False):
+                        body.velocity_func = dynamic_velocity_modifier
+
                     shape = pymunk.Poly.create_box(body, (w, h))
                     shape.friction       = 0.3
                     shape.elasticity     = 0.0   # no parcel-parcel bounce
@@ -271,72 +324,179 @@ class PhysicsEngine:
             self.space.remove(p.body, p.shape)
             self.parcels.remove(p)
 
+    def clear_all_parcels(self):
+        for p in self.parcels:
+            self.space.remove(p.body, p.shape)
+        self.parcels.clear()
+
     def apply_conveyor_kinematics(self):
-        """Drive each parcel using the belt velocity sampled at its center + 4 corners.
-        Applies forces/impulses at each vertex to naturally induce rotation and handle transitions.
-        """
+        """Drive each parcel using the belt velocity sampled at its center + 4 corners."""
         for parcel in self.parcels:
             pos = parcel.body.position
-
-            # Build sample points: center (weight 2) + 4 corners (weight 1 each)
-            sample_pts = [(pos.x, pos.y)] #(pos.x, pos.y)
-            for v in parcel.shape.get_vertices():
-                wv = pos + v.rotated(parcel.body.angle)
-                sample_pts.append((wv.x, wv.y))
+            sample_pts = [(pos.x, pos.y)]
+            # for v in parcel.shape.get_vertices():
+            #     wv = pos + v.rotated(parcel.body.angle)
+            #     sample_pts.append((wv.x, wv.y))
 
             belt_vels = [ self._get_belt_velocity_at(sp[0], sp[1]) for sp in sample_pts ]
 
-            belt_vels_minx = 0.0
-            belt_vels_miny = 0.0
-            belt_vels_maxx = 0.0
-            belt_vels_maxy = 0.0
-            
-            if belt_vels:
-                vx = [bv[0] for bv in belt_vels if bv is not None]
-                vy = [bv[1] for bv in belt_vels if bv is not None]
-                if vx and vy:
-                    belt_vels_minx = min(vx)
-                    belt_vels_miny = min(vy)
-                    belt_vels_maxx = max(vx)
-                    belt_vels_maxy = max(vy)
-            belt_vels[0] = (0.5*(belt_vels_minx + belt_vels_maxx), 0.5*(belt_vels_miny + belt_vels_maxy))
-        
+            if getattr(self.config, 'useSurfaceVelocity', False):
+                touching_belts:Dict[str, Belt] = {}
+                for sp in sample_pts:
+                    for belt in self.config.belts:
+                        if self._is_point_on_belt(sp[0], sp[1], belt):
+                            touching_belts[belt.id] = belt
+                touching_ids = set(touching_belts.keys())
+                if len(touching_ids) > 1:
+                    overlapping_ids = set()
+                    touching_belt_list = list(touching_belts.values())
+                    for i, belt_a in enumerate(touching_belt_list):
+                        for belt_b in touching_belt_list[i + 1:]:
+                            if self._belts_have_area_overlap(belt_a, belt_b):
+                                overlapping_ids.add(belt_a.id)
+                                overlapping_ids.add(belt_b.id)
+                    if overlapping_ids:
+                        parcel.body.momentum_intersection_ids = overlapping_ids
+                            
+                if touching_belts:
+                    best_belt = None
+                    best_score = -float('inf')
+                    best_idx = 0
+                    
+                    for belt in touching_belts.values():
+                        if belt.type == "linear":
+                            rad = math.radians(belt.rotation + belt.directionAngle)
+                            cvx = belt.speed * math.cos(rad)
+                            cvy = belt.speed * math.sin(rad)
+                            cw = 0.0
+                        elif belt.type == "curved":
+                            dx = pos.x - belt.x
+                            dy = pos.y - belt.y
+                            dist = math.hypot(dx, dy)
+                            direction = 1 if getattr(belt, 'directionAngle', 0) > 0 else -1
+                            cw = direction * belt.speed / belt.radius if belt.radius > 0 else 0
+                            speed_at_dist = cw * dist
+                            if dist > 1e-6:
+                                cvx = speed_at_dist * (-dy / dist)
+                                cvy = speed_at_dist * (dx / dist)
 
-            # print(f"MinX: {belt_vels_minx}, MaxX: {belt_vels_maxx}, MinY: {belt_vels_miny}, MaxY: {belt_vels_maxy}")
-            
+                                radial_error = belt.radius - dist
+                                radial_gain = abs(belt.speed) / max(belt.beltWidth * 0.5, 1e-6)
+                                max_radial_speed = abs(belt.speed) * 0.75
+                                radial_speed = max(
+                                    -max_radial_speed,
+                                    min(max_radial_speed, radial_error * radial_gain),
+                                )
+                                # cvx += radial_speed * dx / dist
+                                # cvy += radial_speed * dy / dist
+                            else:
+                                pass
+                                # cvx, cvy = 0.0, 0.0
+                            # cvx, cvy = 0.0, 0.0
+                        else:
+                            continue
 
-            # smooth the velocity
-            # smooth_factor = 0.1
-            # for idx, belt_vel in enumerate(belt_vels):
-            #     if belt_vel is not None:
-            #         belt_vels[idx] = (belt_vel[0] * (1-smooth_factor) + belt_vels_minx * smooth_factor, belt_vel[1] * (1-smooth_factor) + belt_vels_miny * smooth_factor)
-            # print(f"SmoothVels: {belt_vels}")
-            
+                        # Translation may begin while any parcel corner touches a
+                        # curved belt, but parcel orientation should follow the
+                        # centerline sweep. Otherwise a box starts rotating early
+                        # and keeps rotating late, adding a few extra degrees.
+                        if belt.type == "curved" and dist > 1e-6:
+                            center_angle = math.degrees(math.atan2(dy, dx))
+                            if center_angle < 0:
+                                center_angle += 360.0
+                            angular_sector_hit = self._is_angle_in_arc(
+                                center_angle,
+                                belt.startAngle,
+                                belt.endAngle,
+                            )
+                        else:
+                            angular_sector_hit = False
+
+                        if belt.type == "curved" and not angular_sector_hit:
+                            cw = 0.0
+                            
+                        v_len = parcel.body.velocity.length
+                        if v_len < 0.1:
+                            score = math.hypot(cvx, cvy)
+                        else:
+                            score = cvx * parcel.body.velocity.x + cvy * parcel.body.velocity.y
+                            
+                        if score > best_score:
+                            best_score = score
+                            best_belt = (cvx, cvy, cw, belt)
+
+                    if best_belt:
+                        selected_belt = best_belt[3]
+                        # print(f"selected_belt: {selected_belt.id}")
+                        remaining_w = getattr(parcel.body, "target_w_remaining", 0.0)
+                        if remaining_w is None:
+                            remaining_w = 0.0
+                        momentum_intersection_ids = getattr(parcel.body, "momentum_intersection_ids", set())
+                        momentum_source_id = getattr(parcel.body, "target_w_belt_id", None)
+                        intersecting_handoff = (
+                            remaining_w > 0.0
+                            and selected_belt.id in momentum_intersection_ids
+                            and momentum_source_id in momentum_intersection_ids
+                        )
+                        if selected_belt.type == "curved" and abs(best_belt[2]) > 1e-9:
+                            if getattr(parcel.body, "target_w_belt_id", None) != selected_belt.id:
+                                parcel.body.target_w_belt_id = selected_belt.id
+                                parcel.body.target_w_remaining = self._arc_span_radians(
+                                    selected_belt.startAngle,
+                                    selected_belt.endAngle,
+                                )
+                            parcel.body.target_w_last = best_belt[2]
+                            target_w_remaining = getattr(parcel.body, "target_w_remaining", None)
+                            if target_w_remaining and target_w_remaining < 1e-9:
+                                best_belt = (best_belt[0], best_belt[1], 0.0, selected_belt)
+                        elif intersecting_handoff:
+                            cw = getattr(parcel.body, "target_w_last", best_belt[2])
+                            best_belt = (best_belt[0], best_belt[1], cw, selected_belt)
+                        else:
+                            parcel.body.target_w_remaining = None
+                            parcel.body.momentum_intersection_ids = set()
+
+                        previous_belt_id = getattr(parcel.body, "current_belt_id", None)
+                        # print(f"Parcel {parcel.id} is on belt {previous_belt_id} and switching to belt {selected_belt.id}")
+                        if previous_belt_id and previous_belt_id != selected_belt.id:
+
+                            current_v = parcel.body.velocity
+                            parcel.body.transition_momentum_v = (current_v.x, current_v.y)
+                            parcel.body.transition_momentum_duration = 0.01 if selected_belt.type == "curved" else 0.9
+                            parcel.body.transition_momentum_time = parcel.body.transition_momentum_duration
+                            parcel.body.transition_momentum_duration = selected_belt.transition_momentum_duration
+                            # print(f"Parcel {parcel.id} switched from belt {previous_belt_id} to belt {selected_belt.id}")
+                        parcel.body.current_belt_id = selected_belt.id
+                        parcel.body.target_v_enable = True
+                        parcel.body.target_v = (best_belt[0], best_belt[1])
+                        parcel.body.target_w = best_belt[2]
+                        # print(f"Parcel {parcel.id} target_v: {parcel.body.target_v}, target_w: {parcel.body.target_w}")
+                else:
+                    parcel.body.target_v_enable = False
+                    parcel.body.velocity *= 0.9
+                    parcel.body.angular_velocity *= 0.9
+                    parcel.body.target_w_remaining = None
+                    parcel.body.momentum_intersection_ids = set()
+                    parcel.body.transition_momentum_v = None
+                    parcel.body.transition_momentum_time = 0.0
+                    parcel.body.current_belt_id = None
+                continue
+            else:
+                parcel.body.target_v_enable = False
+
+            # --- ORIGINAL MANUAL IMPULSE LOGIC ---
             any_hit = False
             for idx, belt_vel in enumerate(belt_vels):
                 sp = sample_pts[idx]
                 if belt_vel is not None:
                     any_hit = True
-                    # Current velocity of the parcel at this specific world point
                     pt_vel = parcel.body.velocity_at_world_point(sp)
-                    
-                    # Difference between desired belt velocity and current velocity
                     dvx = belt_vel[0] - pt_vel.x
                     dvy = belt_vel[1] - pt_vel.y
-
-
-                        
-                    
-                    # Apply a corrective impulse proportional to the difference.
-                    # grip_factor: how strongly the belt grips the parcel (0=no grip, 1=instant lock)
-                    # Kept < 1.0 to avoid over-correction oscillation when parcels touch each other.
                     grip_factor = 0.8
                     if idx == 0:
                         grip_factor = 0.3
-
-
                     friction_ratio = 0.2
-
                     if math.fabs(belt_vel[0]) < 0.01 and math.fabs(dvx) > 0.01:
                         dvx = friction_ratio * dvx
                     if math.fabs(belt_vel[1]) < 0.01 and math.fabs(dvy) > 0.01:
@@ -345,31 +505,21 @@ class PhysicsEngine:
                     mass_per_pt = parcel.body.mass / len(sample_pts)
                     ix = dvx * mass_per_pt * grip_factor
                     iy = dvy * mass_per_pt * grip_factor
-
-                    # Cap impulse magnitude to avoid violent snapping
                     MAX_IMPULSE = 0.5 * parcel.body.mass / len(sample_pts)
                     imp_mag = math.hypot(ix, iy)
                     if imp_mag > MAX_IMPULSE:
                         scale = MAX_IMPULSE / imp_mag
                         ix *= scale
                         iy *= scale
-
                     parcel.body.apply_impulse_at_world_point((ix, iy), sp)
-                    # parcel.body.velocity_at_world_point(belt_vel,sp)
-                    
-                
-
 
             if not any_hit:
-                # Completely off all belts — damp velocities so it doesn't coast forever
                 parcel.body.velocity *= 0.9
                 parcel.body.angular_velocity *= 0.9
 
     def evaluate_sensors(self):
         """Compute sensor states based on current parcel positions using efficient Pymunk queries."""
         import math
-        
-        # Get set of all shapes belonging to active parcels
         parcel_shapes = {shape for p in self.parcels for shape in p.body.shapes}
         
         for sensor in self.config.sensors:
@@ -386,7 +536,7 @@ class PhysicsEngine:
                         close_parcels.append(p)
                 
                 if not close_parcels:
-                    self.sensor_states[sensor.id] = False
+                    sensor.sensor_states = "0"
                     continue
                 
                 # Query the space using a temporary static sensor shape
@@ -397,12 +547,12 @@ class PhysicsEngine:
                 sensor_shape = pymunk.Poly.create_box(temp_body, (sensor.width, sensor.height))
                 query_results = self.space.shape_query(sensor_shape)
                 
-                triggered = False
+                triggered = "0"
                 for info in query_results:
                     if info.shape in parcel_shapes:
-                        triggered = True
+                        triggered = "1"
                         break
-                self.sensor_states[sensor.id] = triggered
+                sensor.sensor_states = triggered
 
             elif sensor.sensorType == "laser_banner":
                 laser_count_val = getattr(sensor, 'laserCount', 16)
@@ -425,7 +575,7 @@ class PhysicsEngine:
                         close_parcels.append(p)
                 
                 if not close_parcels:
-                    self.sensor_states[sensor.id] = "0" * laser_count
+                    sensor.sensor_states = "0" * laser_count
                     continue
                 
                 # Only check shapes of parcels that are close
@@ -454,7 +604,7 @@ class PhysicsEngine:
                             blocked = True
                             break
                     bits.append("1" if blocked else "0")
-                self.sensor_states[sensor.id] = "".join(bits)
+                sensor.sensor_states = "".join(bits)
 
     def update(self, dt: float):
         sub_steps = getattr(self.config, 'simulationSteps', 4)
